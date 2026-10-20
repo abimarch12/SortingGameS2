@@ -1,0 +1,754 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>拖拉排序：大小由大到小 / 由小到大</title>
+  <style>
+    :root{
+      --text:#1f2937;
+      --muted:#6b7280;
+
+      --shadow: 0 10px 24px rgba(16,24,40,.10);
+      --radius:16px;
+      --grid-gap:12px;
+      --tile:112px;
+
+      /* bigger stage icons for "very large differences" */
+      --slot-icon: 108px;
+      --pool-icon: 92px;
+    }
+
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
+      background: linear-gradient(180deg, #eef2ff 0%, #f7f8fb 40%, #f7f8fb 100%);
+      color: var(--text);
+    }
+
+    .wrap{ max-width: 980px; margin: 0 auto; padding: 14px; }
+
+    header{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin: 8px 0 14px;
+    }
+
+    .brand{
+      display:flex; align-items:center; gap:10px;
+      padding:10px 12px;
+      background: rgba(255,255,255,.65);
+      border: 1px solid rgba(31,41,55,.08);
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+    }
+    .badge{
+      width:34px; height:34px; border-radius: 10px;
+      background: radial-gradient(circle at 30% 20%, #93c5fd, #2563eb);
+      box-shadow: 0 10px 18px rgba(37,99,235,.22);
+      display:flex; align-items:center; justify-content:center;
+      color:white; font-weight:800; letter-spacing:.5px;
+    }
+    .brand h1{ font-size:14px; margin:0; line-height:1.1; }
+    .brand p{ margin:0; font-size:12px; color: var(--muted); line-height:1.2; }
+
+    .pill{
+      background: rgba(255,255,255,.65);
+      border: 1px solid rgba(31,41,55,.08);
+      border-radius: 999px;
+      padding: 10px 12px;
+      display:flex; align-items:center; gap:8px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 18px rgba(16,24,40,.06);
+      white-space:nowrap;
+    }
+    .pill .k{ font-size:12px; color: var(--muted); }
+    .pill .v{ font-weight:800; font-size:13px; color: #111827; }
+
+    .panel{
+      background: rgba(255,255,255,.72);
+      border: 1px solid rgba(31,41,55,.08);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+      backdrop-filter: blur(10px);
+    }
+
+    .qhead{
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+      margin-bottom: 10px; flex-wrap:wrap;
+    }
+
+    .question{ flex: 1 1 340px; }
+    .question .qtitle{ font-size: 15px; font-weight: 900; margin: 0 0 6px; }
+    .question .qdesc{ margin:0; color: var(--muted); font-size: 13px; line-height:1.45; }
+
+    .controls{
+      flex: 0 0 auto;
+      display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    button{
+      border: 0;
+      background: linear-gradient(180deg, #fff 0%, #f3f4f6 100%);
+      border: 1px solid rgba(31,41,55,.12);
+      border-radius: 12px;
+      padding: 10px 12px;
+      cursor:pointer;
+      font-weight:800;
+      color:#111827;
+      box-shadow: 0 6px 14px rgba(16,24,40,.08);
+      transition: transform .06s ease;
+    }
+    button:active{ transform: translateY(1px); }
+    button.primary{
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      border-color: rgba(37,99,235,.4);
+      color:white;
+    }
+    button:disabled{ opacity:.6; cursor:not-allowed; }
+
+    .stage{ display:grid; grid-template-columns: 1fr; gap: 12px; }
+
+    .targets{ display:flex; gap: var(--grid-gap); flex-wrap:wrap; justify-content:center; }
+
+    .slot{
+      flex: 1 1 160px;
+      min-width: 150px;
+      background: rgba(17,24,39,.03);
+      border: 1px dashed rgba(31,41,55,.20);
+      border-radius: 14px;
+      padding: 10px 10px 12px;
+      min-height: 168px; /* a bit taller for bigger max icon */
+    }
+
+    .slot .cap{
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 800;
+      margin-bottom: 8px;
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      user-select:none;
+    }
+
+    .slot .labelMinMax{
+      font-size: 12px;
+      font-weight: 900;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(37,99,235,.10);
+      color: #1d4ed8;
+      border: 1px solid rgba(37,99,235,.20);
+      white-space:nowrap;
+    }
+    .slot .labelMinMax.min{
+      background: rgba(34,197,94,.10);
+      color: #15803d;
+      border-color: rgba(34,197,94,.22);
+    }
+    .slot .labelMinMax.max{
+      background: rgba(239,68,68,.10);
+      color: #b91c1c;
+      border-color: rgba(239,68,68,.22);
+    }
+
+    .slot .dropArea{
+      display:flex; align-items:center; justify-content:center;
+      min-height: 110px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.65);
+      border: 1px solid rgba(31,41,55,.08);
+      position: relative;
+      overflow:hidden;
+    }
+
+    .slot.dragover{
+      border-color: rgba(37,99,235,.55);
+      background: rgba(37,99,235,.06);
+      transform: translateY(-1px);
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+    }
+
+    .tiles{
+      display:flex; gap: var(--grid-gap); flex-wrap:wrap; justify-content:center;
+      margin-top: 12px; padding-bottom: 4px;
+    }
+
+    .tile{
+      width: var(--tile);
+      max-width: 44vw;
+      min-width: 92px;
+      height: 132px; /* slight taller */
+      background: rgba(255,255,255,.75);
+      border: 1px solid rgba(31,41,55,.10);
+      border-radius: 16px;
+      box-shadow: 0 8px 18px rgba(16,24,40,.07);
+      padding: 10px 10px;
+      display:flex; align-items:center; justify-content:center;
+      cursor: grab; user-select:none;
+      position: relative; touch-action: none;
+      transition: transform .08s ease;
+    }
+    .tile:active{ cursor:grabbing; transform: scale(.99); }
+    .tile[aria-disabled="true"]{ opacity:.45; cursor:not-allowed; }
+
+    .tile .miniText{
+      position:absolute; bottom: 8px; left: 10px;
+      font-size: 11px; color: rgba(31,41,55,.55);
+      font-weight: 800; pointer-events:none;
+    }
+
+    .svgWrap{
+      width: var(--pool-icon);
+      height: var(--pool-icon);
+      display:flex; align-items:center; justify-content:center;
+      position:relative;
+      transform-origin: center;
+    }
+    .slot .svgWrap{
+      width: var(--slot-icon);
+      height: var(--slot-icon);
+    }
+
+    /* VERY LARGE differences */
+    /* sizeRank mapping 1..4 (or up to 4 in this game). We'll still keep 1..6 classes. */
+    .size-1{ transform: scale(.28); }
+    .size-2{ transform: scale(.52); }
+    .size-3{ transform: scale(.78); }
+    .size-4{ transform: scale(1.28); }
+    .size-5{ transform: scale(1.45); }
+    .size-6{ transform: scale(1.60); }
+
+    .feedback{
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(31,41,55,.08);
+      background: rgba(255,255,255,.65);
+      display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+    }
+    .feedback .msg{ font-weight: 900; font-size: 14px; margin:0; }
+    .feedback .sub{ margin:3px 0 0; color: var(--muted); font-size: 12px; line-height:1.4; }
+
+    .feedback.ok{ border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.08); }
+    .feedback.bad{ border-color: rgba(239,68,68,.25); background: rgba(239,68,68,.08); }
+
+    .srOnly{
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0,0,0,0); border:0;
+    }
+
+    @media (max-width: 520px){
+      :root{ --tile: 96px; --grid-gap: 10px; --slot-icon: 98px; --pool-icon: 84px; }
+      .slot{ min-width: 140px; }
+      .tile{ height: 124px; }
+      .slot .dropArea{ min-height: 104px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="badge">1–15</div>
+        <div>
+          <h1>拖拉排序遊戲</h1>
+          <p>由大到小 / 由小到大</p>
+        </div>
+      </div>
+      <div class="pill" aria-live="polite">
+        <span class="k">題目</span>
+        <span class="v" id="scoreText">1 / 15</span>
+      </div>
+    </header>
+
+    <div class="panel">
+      <div class="qhead">
+        <div class="question">
+          <p class="qtitle" id="qTitle"></p>
+          <p class="qdesc" id="qDesc"></p>
+        </div>
+        <div class="controls">
+          <button id="btnCheck" class="primary" type="button">檢查答案</button>
+          <button id="btnReset" type="button">重新排列</button>
+          <button id="btnNext" type="button">下一題</button>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="targets" id="targets"></div>
+        <div class="tiles" id="tiles"></div>
+      </div>
+
+      <div class="feedback" id="feedback" style="display:none;">
+        <div>
+          <p class="msg" id="feedbackMsg"></p>
+          <p class="sub" id="feedbackSub"></p>
+        </div>
+        <div class="srOnly" id="ariaStatus" aria-live="assertive"></div>
+      </div>
+      <!-- prompt cut already -->
+    </div>
+  </div>
+
+  <script>
+    /***********************
+     * Audio
+     ***********************/
+    function createBeep(ctx, freq, duration, type="sine", gain=0.08){
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      g.gain.value = gain;
+      osc.connect(g);
+      g.connect(ctx.destination);
+      const now = ctx.currentTime;
+      osc.start(now);
+      osc.stop(now + duration);
+    }
+    function playCorrect(){
+      const ctx = getAudioCtx(); if(!ctx) return;
+      createBeep(ctx, 880, 0.09, "triangle", 0.10);
+      setTimeout(()=> createBeep(ctx, 1175, 0.11, "triangle", 0.09), 90);
+      setTimeout(()=> createBeep(ctx, 1568, 0.14, "sine", 0.07), 210);
+    }
+    function playWrong(){
+      const ctx = getAudioCtx(); if(!ctx) return;
+      createBeep(ctx, 220, 0.14, "sawtooth", 0.07);
+      setTimeout(()=> createBeep(ctx, 160, 0.16, "sawtooth", 0.07), 120);
+      setTimeout(()=> createBeep(ctx, 110, 0.18, "sine", 0.06), 250);
+    }
+    let _audioCtx = null;
+    function getAudioCtx(){
+      try{
+        if(!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(_audioCtx.state === "suspended") _audioCtx.resume();
+        return _audioCtx;
+      }catch(e){ return null; }
+    }
+
+    /***********************
+     * Shapes
+     ***********************/
+    function svgShape({kind, colorA, colorB, variant=0}){
+      const common = `
+        <svg width="74" height="74" viewBox="0 0 74 74" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
+          <rect x="6" y="6" width="62" height="62" rx="18" fill="rgba(37,99,235,0.06)" stroke="rgba(31,41,55,0.10)"/>
+      `;
+      const end = `</svg>`;
+
+      if(kind === "circle"){
+        return `
+          ${common}
+          <circle cx="37" cy="37" r="18" fill="${colorA}" stroke="rgba(0,0,0,0.10)"/>
+          <path d="M22 38 C28 26, 46 26, 52 38" stroke="${colorB}" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+          ${variant===1 ? `<circle cx="37" cy="37" r="8" fill="rgba(255,255,255,0.35)"/>` : ``}
+          ${variant===2 ? `<path d="M28 46 L46 28" stroke="${colorB}" stroke-width="3" stroke-linecap="round"/>` : ``}
+          ${end}
+        `;
+      }
+      if(kind === "square"){
+        return `
+          ${common}
+          <rect x="22" y="22" width="30" height="30" rx="9" fill="${colorA}" stroke="rgba(0,0,0,0.10)"/>
+          <path d="M22 37 H52" stroke="${colorB}" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+          ${variant===1 ? `<rect x="29" y="29" width="16" height="16" rx="6" fill="rgba(255,255,255,0.35)"/>` : ``}
+          ${variant===2 ? `<path d="M29 29 L45 45" stroke="${colorB}" stroke-width="3" stroke-linecap="round"/>` : ``}
+          ${end}
+        `;
+      }
+      if(kind === "star"){
+        return `
+          ${common}
+          <path d="M37 17 L42.5 28.5 L55 30.5 L45.6 39.2 L48.2 51.6 L37 45.6 L25.8 51.6 L28.4 39.2 L19 30.5 L31.5 28.5 Z"
+                fill="${colorA}" stroke="rgba(0,0,0,0.10)" />
+          <path d="M37 25 L40 33 L48 34.5 L41.5 40.2 L43.2 48 L37 44.2 L30.8 48 L32.5 40.2 L26 34.5 L34 33 Z"
+                fill="${colorB}" opacity="0.35"/>
+          ${variant===1 ? `<circle cx="37" cy="37" r="6.5" fill="rgba(255,255,255,0.35)"/>` : ``}
+          ${variant===2 ? `<path d="M26 42 C33 36, 41 36, 48 42" stroke="${colorB}" stroke-width="3" stroke-linecap="round" />` : ``}
+          ${end}
+        `;
+      }
+      if(kind === "triangle"){
+        return `
+          ${common}
+          <path d="M37 18 L54 50 H20 Z" fill="${colorA}" stroke="rgba(0,0,0,0.10)"/>
+          <path d="M37 25 L49 47 H25 Z" fill="${colorB}" opacity="0.35"/>
+          ${variant===1 ? `<path d="M25 48 L37 31 L49 48" stroke="${colorB}" stroke-width="3" stroke-linecap="round"/>` : ``}
+          ${variant===2 ? `<path d="M28 22 L46 52" stroke="${colorB}" stroke-width="3" stroke-linecap="round" opacity="0.75"/>` : ``}
+          ${end}
+        `;
+      }
+      if(kind === "heart"){
+        return `
+          ${common}
+          <path d="M37 20
+                   C33 14, 22 16, 22 25
+                   C22 37, 37 46, 37 46
+                   C37 46, 52 37, 52 25
+                   C52 16, 41 14, 37 20 Z"
+                fill="${colorA}" stroke="rgba(0,0,0,0.10)"/>
+          <path d="M37 26 C35 22, 29 23, 29 28 C29 35, 37 39, 37 39 C37 39, 45 35, 45 28 C45 23, 39 22, 37 26 Z"
+                fill="${colorB}" opacity="0.32"/>
+          ${variant===1 ? `<path d="M27 30 Q37 36 47 30" stroke="${colorB}" stroke-width="3" stroke-linecap="round" opacity="0.8"/>` : ``}
+          ${variant===2 ? `<circle cx="31" cy="29" r="3.3" fill="${colorB}" opacity="0.8"/>` : ``}
+          ${end}
+        `;
+      }
+      return `${common}<circle cx="37" cy="37" r="18" fill="${colorA}"/>${end}`;
+    }
+
+    /***********************
+     * Questions
+     ***********************/
+    function mulberry32(a){
+      return function(){
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      }
+    }
+    function pick(arr, rnd){ return arr[Math.floor(rnd() * arr.length)]; }
+
+    const shapeKinds = ["circle","square","star","triangle","heart"];
+    const palette = [
+      ["#60a5fa","#93c5fd"], ["#34d399","#6ee7b7"], ["#f472b6","#f9a8d4"],
+      ["#fbbf24","#fde68a"], ["#a78bfa","#c4b5fd"], ["#fb7185","#fda4af"],
+      ["#22c55e","#86efac"], ["#38bdf8","#7dd3fc"], ["#fb923c","#fdba74"],
+    ];
+
+    function buildQuestions(){
+      const questions = [];
+      for(let qi=1; qi<=15; qi++){
+        const count = (qi<=10 ? 3 : 4);
+        const want = (qi % 2 === 1) ? "smallToLarge" : "largeToSmall";
+        const rnd = mulberry32(1000 + qi * 77);
+
+        const sizeRanks = [];
+        for(let i=1;i<=count;i++) sizeRanks.push(i);
+
+        const tiles = [];
+
+        if(qi <= 5){
+          const kind = pick(shapeKinds, rnd);
+          const objectTag = `shape:${kind}`;
+          const [colorA, colorB] = pick(palette, rnd);
+          const order = [...sizeRanks].sort(()=> rnd()-0.5);
+          for(let i=0;i<count;i++){
+            tiles.push({ id:`q${qi}-t${i}`, kind, colorA, colorB, sizeRank:order[i], variant:i%3, itemTag:objectTag });
+          }
+        } else if(qi <= 10){
+          const kind = pick(shapeKinds, rnd);
+          const objectTag = `shape:${kind}:set`;
+          const order = [...sizeRanks].sort(()=> rnd()-0.5);
+          for(let i=0;i<count;i++){
+            const [colorA, colorB] = pick(palette, rnd);
+            tiles.push({ id:`q${qi}-t${i}`, kind, colorA, colorB, sizeRank:order[i], variant:i, itemTag:objectTag });
+          }
+        } else {
+          const kind = pick(shapeKinds, rnd);
+          const objectTag = `shape:${kind}:four`;
+          const order = [...sizeRanks].sort(()=> rnd()-0.5);
+          for(let i=0;i<count;i++){
+            const [colorA, colorB] = pick(palette, rnd);
+            tiles.push({ id:`q${qi}-t${i}`, kind, colorA, colorB, sizeRank:order[i], variant:i%3, itemTag:objectTag });
+          }
+        }
+
+        const expected = [];
+        for(let s=0;s<count;s++){
+          expected.push(want==="smallToLarge" ? (s+1) : (count - s));
+        }
+
+        const title = (qi<=5) ? `第 ${qi} 題：同圖案由大小排序` :
+                      (qi<=10) ? `第 ${qi} 題：同物件不同款式/顏色，由大小排序` :
+                                 `第 ${qi} 題：由大小排序（4 個選項）`;
+
+        const desc = (want==="smallToLarge")
+          ? "請把圖形從「最小」拖到「最大」（由小到大）。"
+          : "請把圖形從「最大」拖到「最小」（由大到小）。";
+
+        questions.push({ qi, count, want, title, desc, tiles, expected });
+      }
+      return questions;
+    }
+
+    const questions = buildQuestions();
+
+    /***********************
+     * UI logic
+     ***********************/
+    const targetsEl = document.getElementById("targets");
+    const tilesEl = document.getElementById("tiles");
+    const qTitleEl = document.getElementById("qTitle");
+    const qDescEl = document.getElementById("qDesc");
+    const scoreText = document.getElementById("scoreText");
+    const feedback = document.getElementById("feedback");
+    const feedbackMsg = document.getElementById("feedbackMsg");
+    const feedbackSub = document.getElementById("feedbackSub");
+    const btnCheck = document.getElementById("btnCheck");
+    const btnReset = document.getElementById("btnReset");
+    const btnNext = document.getElementById("btnNext");
+
+    let currentIndex = 0;
+
+    const state = { placed: [], tileLoc:{}, tileById:{}, draggedTileId:null };
+
+    function clearFeedback(){
+      feedback.style.display = "none";
+      feedbackMsg.textContent = "";
+      feedbackSub.textContent = "";
+    }
+    function showFeedback(ok, msg, sub){
+      feedback.classList.remove("ok","bad");
+      feedback.classList.add(ok ? "ok" : "bad");
+      feedbackMsg.textContent = msg;
+      feedbackSub.textContent = sub;
+      feedback.style.display = "flex";
+    }
+    function tileSizeClass(sizeRank){
+      const clamped = Math.max(1, Math.min(6, sizeRank));
+      return `size-${clamped}`;
+    }
+
+    function clearSlot(slotIndex){
+      state.placed[slotIndex] = null;
+      const slot = targetsEl.querySelector(`.slot[data-slot-index="${slotIndex}"]`);
+      slot.querySelector(".dropArea").innerHTML =
+        `<div style="color: rgba(31,41,55,.45); font-weight:900; font-size:12px;">放到這裡</div>`;
+    }
+
+    function placeTileToSlot(tileId, slotIndex){
+      const q = questions[currentIndex];
+
+      if(state.placed[slotIndex]){
+        const oldId = state.placed[slotIndex];
+        state.tileLoc[oldId] = "pool";
+        const oldTileEl = tilesEl.querySelector(`.tile[data-tile-id="${oldId}"]`);
+        if(oldTileEl){
+          oldTileEl.setAttribute("aria-disabled","false");
+          oldTileEl.draggable = true;
+        }
+      }
+
+      if(state.tileLoc[tileId] === "slot"){
+        const prev = state.placed.findIndex(id => id === tileId);
+        if(prev !== -1) clearSlot(prev);
+      }
+
+      state.placed[slotIndex] = tileId;
+      state.tileLoc[tileId] = "slot";
+
+      const tileObj = state.tileById[tileId];
+      const slot = targetsEl.querySelector(`.slot[data-slot-index="${slotIndex}"]`);
+      const drop = slot.querySelector(".dropArea");
+      drop.innerHTML = "";
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "svgWrap " + tileSizeClass(tileObj.sizeRank);
+      wrapper.innerHTML = svgShape({
+        kind: tileObj.kind,
+        colorA: tileObj.colorA,
+        colorB: tileObj.colorB,
+        variant: tileObj.variant
+      });
+      drop.appendChild(wrapper);
+
+      const tileEl = tilesEl.querySelector(`.tile[data-tile-id="${tileId}"]`);
+      if(tileEl){
+        tileEl.setAttribute("aria-disabled","true");
+        tileEl.draggable = false;
+      }
+    }
+
+    function allSlotsFilled(){ return state.placed.every(x => x !== null); }
+
+    function checkAnswer(){
+      const q = questions[currentIndex];
+      if(!allSlotsFilled()){
+        showFeedback(false, "還沒完成喔！", "請把所有拖拉圖形放進上方的位置。");
+        playWrong();
+        return;
+      }
+      for(let s=0;s<q.count;s++){
+        const tileObj = state.tileById[state.placed[s]];
+        if(tileObj.sizeRank !== q.expected[s]){
+          showFeedback(false, "答錯了！再試一次吧！", `第 ${s+1} 個位置不符合大小排序。`);
+          playWrong();
+          return;
+        }
+      }
+      showFeedback(true, "答對了！太棒了！", "你把大小排序做得很好！");
+      playCorrect();
+      btnCheck.disabled = true;
+    }
+
+    function resetCurrent(){
+      const q = questions[currentIndex];
+      for(let s=0;s<q.count;s++){
+        const tileId = state.placed[s];
+        if(tileId){
+          state.tileLoc[tileId] = "pool";
+          const tileEl = tilesEl.querySelector(`.tile[data-tile-id="${tileId}"]`);
+          if(tileEl){
+            tileEl.setAttribute("aria-disabled","false");
+            tileEl.draggable = true;
+          }
+        }
+      }
+      for(let s=0;s<q.count;s++) clearSlot(s);
+      state.draggedTileId = null;
+      clearFeedback();
+      btnCheck.disabled = false;
+    }
+
+    function renderQuestion(){
+      clearFeedback();
+      const q = questions[currentIndex];
+      scoreText.textContent = `${q.qi} / 15`;
+      qTitleEl.textContent = q.title;
+      qDescEl.textContent = q.desc;
+
+      state.placed = new Array(q.count).fill(null);
+      state.tileLoc = {};
+      state.tileById = {};
+      state.draggedTileId = null;
+
+      tilesEl.innerHTML = "";
+      const rnd = mulberry32(777 + q.qi * 13);
+      const displayOrder = [...q.tiles].sort(()=> rnd()-0.5);
+
+      for(const t of displayOrder){
+        state.tileById[t.id] = t;
+        state.tileLoc[t.id] = "pool";
+
+        const tile = document.createElement("div");
+        tile.className = "tile";
+        tile.draggable = true;
+        tile.setAttribute("role","button");
+        tile.setAttribute("tabindex","0");
+        tile.dataset.tileId = t.id;
+        tile.setAttribute("data-tile-id", t.id);
+
+        const svg = document.createElement("div");
+        svg.className = "svgWrap " + tileSizeClass(t.sizeRank);
+        svg.innerHTML = svgShape({
+          kind: t.kind,
+          colorA: t.colorA,
+          colorB: t.colorB,
+          variant: t.variant
+        });
+
+        const mini = document.createElement("div");
+        mini.className = "miniText";
+        mini.textContent = "拖我";
+
+        tile.appendChild(svg);
+        tile.appendChild(mini);
+
+        tile.addEventListener("dragstart", (e)=>{
+          state.draggedTileId = t.id;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", t.id);
+          tile.classList.add("ghost");
+        });
+        tile.addEventListener("dragend", ()=>{
+          tile.classList.remove("ghost");
+          state.draggedTileId = null;
+        });
+
+        // click-to-select (touch fallback)
+        tile.addEventListener("click", ()=>{
+          if(state.tileLoc[t.id] !== "pool") return;
+          state.draggedTileId = t.id;
+          tile.style.outline = "2px solid rgba(37,99,235,.45)";
+          setTimeout(()=> tile.style.outline = "none", 250);
+        });
+
+        tilesEl.appendChild(tile);
+      }
+
+      targetsEl.innerHTML = "";
+
+      const minSlotIndex = q.expected.findIndex(r => r === 1);
+      const maxSlotIndex = q.expected.findIndex(r => r === q.count);
+
+      for(let s=0;s<q.count;s++){
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        slot.dataset.slotIndex = s;
+
+        const cap = document.createElement("div");
+        cap.className = "cap";
+
+        const capLeft = document.createElement("div");
+        capLeft.textContent = `位置 ${s+1}`;
+
+        const label = document.createElement("div");
+        label.style.minHeight = "20px";
+        if(s === minSlotIndex){
+          label.className = "labelMinMax min";
+          label.textContent = "最小";
+        } else if(s === maxSlotIndex){
+          label.className = "labelMinMax max";
+          label.textContent = "最大";
+        } else {
+          label.textContent = "";
+        }
+
+        cap.appendChild(capLeft);
+        cap.appendChild(label);
+
+        const drop = document.createElement("div");
+        drop.className = "dropArea";
+        drop.innerHTML = `<div style="color: rgba(31,41,55,.45); font-weight:900; font-size:12px;">放到這裡</div>`;
+
+        slot.addEventListener("dragover", (e)=>{
+          e.preventDefault();
+          slot.classList.add("dragover");
+          e.dataTransfer.dropEffect = "move";
+        });
+        slot.addEventListener("dragleave", ()=> slot.classList.remove("dragover"));
+        slot.addEventListener("drop", (e)=>{
+          e.preventDefault();
+          slot.classList.remove("dragover");
+          const tileId = e.dataTransfer.getData("text/plain") || state.draggedTileId;
+          if(!tileId) return;
+          placeTileToSlot(tileId, s);
+        });
+
+        slot.addEventListener("click", ()=>{
+          const tileId = state.draggedTileId;
+          if(!tileId) return;
+          if(state.tileLoc[tileId] !== "pool") return;
+          placeTileToSlot(tileId, s);
+          state.draggedTileId = null;
+        });
+
+        slot.appendChild(cap);
+        slot.appendChild(drop);
+        targetsEl.appendChild(slot);
+      }
+
+      btnCheck.disabled = false;
+    }
+
+    btnCheck.addEventListener("click", ()=>{ getAudioCtx(); checkAnswer(); });
+    btnReset.addEventListener("click", ()=>{ getAudioCtx(); resetCurrent(); });
+    btnNext.addEventListener("click", ()=>{ getAudioCtx();
+      if(currentIndex < questions.length - 1){
+        currentIndex++;
+        renderQuestion();
+      } else {
+        currentIndex = 0;
+        renderQuestion();
+      }
+    });
+
+    renderQuestion();
+  </script>
+
+
+</body></html>
